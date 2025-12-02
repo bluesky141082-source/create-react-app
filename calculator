@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Calculator</title>
+  <style>
+    :root{--bg:#0f1724;--panel:#0b1220;--accent:#06b6d4;--btn:#1f2937;--muted:#94a3b8;color-scheme:dark}
+    *{box-sizing:border-box}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#071124 0%,#071727 100%)}
+    .calc{width:320px;background:var(--panel);padding:14px;border-radius:12px;box-shadow:0 6px 30px rgba(2,6,23,.7)}
+    .display{height:72px;background:transparent;color:white;display:flex;flex-direction:column;justify-content:center;align-items:flex-end;padding:10px 12px;border-radius:8px;font-size:20px}
+    .history{color:var(--muted);font-size:13px;opacity:.9;min-height:16px}
+    .output{font-size:28px;word-break:break-all}
+    .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}
+    button{height:56px;border-radius:8px;border:0;font-size:18px;background:var(--btn);color:#e6eef6;cursor:pointer}
+    .op{background:#111827;color:var(--accent);font-weight:600}
+    .wide{grid-column:span 2}
+    button:active{transform:translateY(1px)}
+    @media (max-width:360px){.calc{width:92vw}}
+  </style>
+</head>
+<body>
+  <div class="calc" role="application" aria-label="Calculator">
+    <div class="display" aria-live="polite">
+      <div class="history" id="history"></div>
+      <div class="output" id="output">0</div>
+    </div>
+    <div class="grid" role="group" aria-label="Calculator keys">
+      <button data-action="clear">AC</button>
+      <button data-action="negate">+/-</button>
+      <button data-action="percent">%</button>
+      <button class="op" data-action="/">÷</button>
+
+      <button data-num="7">7</button>
+      <button data-num="8">8</button>
+      <button data-num="9">9</button>
+      <button class="op" data-action="*">×</button>
+
+      <button data-num="4">4</button>
+      <button data-num="5">5</button>
+      <button data-num="6">6</button>
+      <button class="op" data-action="-">−</button>
+
+      <button data-num="1">1</button>
+      <button data-num="2">2</button>
+      <button data-num="3">3</button>
+      <button class="op" data-action="+">+</button>
+
+      <button class="wide" data-num="0">0</button>
+      <button data-action="decimal">.</button>
+      <button class="op" data-action="=">=</button>
+    </div>
+  </div>
+
+  <script>
+    (function(){
+      const outputEl = document.getElementById('output');
+      const historyEl = document.getElementById('history');
+      let expr = ''; // visible expression
+      let lastResult = null;
+      let justEvaluated = false;
+
+      const buttons = document.querySelectorAll('button');
+      buttons.forEach(b => b.addEventListener('click', onButton));
+
+      document.addEventListener('keydown', onKey);
+
+      function onButton(e){
+        const b = e.currentTarget;
+        if (b.dataset.num) pushNumber(b.dataset.num);
+        else handleAction(b.dataset.action);
+      }
+
+      function onKey(e){
+        if (e.key >= '0' && e.key <= '9') { pushNumber(e.key); e.preventDefault(); return; }
+        if (e.key === '.' ) { handleAction('decimal'); e.preventDefault(); return; }
+        if (e.key === 'Escape') { handleAction('clear'); e.preventDefault(); return; }
+        if (e.key === 'Backspace') { backspace(); e.preventDefault(); return; }
+        if (e.key === 'Enter' || e.key === '=') { handleAction('='); e.preventDefault(); return; }
+        if (['+','-','*','/'].includes(e.key)) { handleAction(e.key); e.preventDefault(); return; }
+      }
+
+      function pushNumber(n){
+        if (justEvaluated){ expr = ''; justEvaluated = false; }
+        expr += n;
+        render();
+      }
+
+      function handleAction(action){
+        if (action === 'clear'){ expr=''; lastResult=null; historyEl.textContent=''; render(); return; }
+        if (action === 'decimal'){
+          if (justEvaluated){ expr = '0'; justEvaluated = false; }
+          // prevent multiple decimals in the current number
+          const parts = expr.split(/[\+\-\*\/]/);
+          const cur = parts[parts.length-1] || '';
+          if (!cur.includes('.')) expr += cur === '' ? '0.' : '.';
+          render(); return;
+        }
+        if (action === 'negate'){
+          // toggle sign of last number
+          expr = expr.replace(/(\d+(\.\d+)?)(?!.*\d)/, m => (m.startsWith('-') ? m.slice(1) : '-' + m));
+          render(); return;
+        }
+        if (action === 'percent'){
+          // convert last number to percentage
+          expr = expr.replace(/(\d+(\.\d+)?)(?!.*\d)/, m => String(parseFloat(m) / 100));
+          render(); return;
+        }
+        if (action === '='){
+          evaluateExpr(); return;
+        }
+        if (action === 'backspace'){ backspace(); return; }
+        // operator
+        if (['+','-','*','/','/'].includes(action)){
+          if (expr === '' && (action === '+' || action === '-' )) {
+            expr = action; render(); return;
+          }
+          // replace trailing operator
+          expr = expr.replace(/[\+\-\*\/]+$/, '') + action;
+          justEvaluated = false;
+          render(); return;
+        }
+      }
+
+      function backspace(){
+        if (justEvaluated){ expr = ''; justEvaluated = false; render(); return; }
+        expr = expr.slice(0, -1);
+        render();
+      }
+
+      function render(){
+        outputEl.textContent = expr === '' ? '0' : expr;
+      }
+
+      function evaluateExpr(){
+        if (!expr) return;
+        // sanitize expression: allow digits, decimal, operators, parentheses
+        const safe = expr.replace(/×/g,'*').replace(/÷/g,'/');
+        if (!/^[0-9+\-*/().\s]+$/.test(safe)) { outputEl.textContent = 'Error'; return; }
+        try {
+          // Use Function to evaluate (simple, but not for untrusted complex inputs)
+          const result = Function('"use strict";return (' + safe + ')')();
+          lastResult = result;
+          historyEl.textContent = expr + ' =';
+          outputEl.textContent = String(result);
+          expr = String(result);
+          justEvaluated = true;
+        } catch (err) {
+          outputEl.textContent = 'Error';
+        }
+      }
+
+      // expose basic actions
+      window.calc = {get expression(){return expr}, evaluate: evaluateExpr};
+      render();
+    })();
+  </script>
+</body>
+</html>
